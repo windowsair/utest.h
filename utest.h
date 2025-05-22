@@ -377,6 +377,7 @@ typedef void (*utest_testcase_t)(int *, size_t);
 struct utest_test_state_s {
   utest_testcase_t func;
   size_t index;
+  size_t order;
   char *name;
 };
 
@@ -1152,7 +1153,7 @@ utest_strncpy_gcc(char *const dst, const char *const src, const size_t size) {
 #define UTEST_SURPRESS_WARNINGS_END
 #endif
 
-#define UTEST(SET, NAME)                                                       \
+#define UTEST_ORDER(SET, NAME, ORDER)                                          \
   UTEST_SURPRESS_WARNINGS_BEGIN                                                \
   UTEST_EXTERN struct utest_state_s utest_state;                               \
   static void utest_run_##SET##_##NAME(int *utest_result);                     \
@@ -1174,6 +1175,7 @@ utest_strncpy_gcc(char *const dst, const char *const src, const size_t size) {
       utest_state.tests[index].func = &utest_##SET##_##NAME;                   \
       utest_state.tests[index].name = name;                                    \
       utest_state.tests[index].index = 0;                                      \
+      utest_state.tests[index].order = ORDER;                                  \
       UTEST_SNPRINTF(name, name_size, "%s", name_part);                        \
     } else {                                                                   \
       if (utest_state.tests) {                                                 \
@@ -1188,6 +1190,8 @@ utest_strncpy_gcc(char *const dst, const char *const src, const size_t size) {
   UTEST_SURPRESS_WARNINGS_END                                                  \
   void utest_run_##SET##_##NAME(int *utest_result)
 
+#define UTEST(SET, NAME) UTEST_ORDER(SET, NAME, 0)
+
 #define UTEST_F_SETUP(FIXTURE)                                                 \
   static void utest_f_setup_##FIXTURE(int *utest_result,                       \
                                       struct FIXTURE *utest_fixture)
@@ -1196,7 +1200,7 @@ utest_strncpy_gcc(char *const dst, const char *const src, const size_t size) {
   static void utest_f_teardown_##FIXTURE(int *utest_result,                    \
                                          struct FIXTURE *utest_fixture)
 
-#define UTEST_F(FIXTURE, NAME)                                                 \
+#define UTEST_F_ORDER(FIXTURE, NAME, ORDER)                                    \
   UTEST_SURPRESS_WARNINGS_BEGIN                                                \
   UTEST_EXTERN struct utest_state_s utest_state;                               \
   static void utest_f_setup_##FIXTURE(int *, struct FIXTURE *);                \
@@ -1227,7 +1231,7 @@ utest_strncpy_gcc(char *const dst, const char *const src, const size_t size) {
     if (utest_state.tests && name) {                                           \
       utest_state.tests[index].func = &utest_f_##FIXTURE##_##NAME;             \
       utest_state.tests[index].name = name;                                    \
-      utest_state.tests[index].index = 0;                                      \
+      utest_state.tests[index].order = ORDER;                                  \
       UTEST_SNPRINTF(name, name_size, "%s", name_part);                        \
     } else {                                                                   \
       if (utest_state.tests) {                                                 \
@@ -1243,6 +1247,8 @@ utest_strncpy_gcc(char *const dst, const char *const src, const size_t size) {
   void utest_run_##FIXTURE##_##NAME(int *utest_result,                         \
                                     struct FIXTURE *utest_fixture)
 
+#define UTEST_F(FIXTURE, NAME) UTEST_F_ORDER(FIXTURE, NAME, 0)
+
 #define UTEST_I_SETUP(FIXTURE)                                                 \
   static void utest_i_setup_##FIXTURE(                                         \
       int *utest_result, struct FIXTURE *utest_fixture, size_t utest_index)
@@ -1251,7 +1257,7 @@ utest_strncpy_gcc(char *const dst, const char *const src, const size_t size) {
   static void utest_i_teardown_##FIXTURE(                                      \
       int *utest_result, struct FIXTURE *utest_fixture, size_t utest_index)
 
-#define UTEST_I(FIXTURE, NAME, INDEX)                                          \
+#define UTEST_I_ORDER(FIXTURE, NAME, INDEX, ORDER)                             \
   UTEST_SURPRESS_WARNINGS_BEGIN                                                \
   UTEST_EXTERN struct utest_state_s utest_state;                               \
   static void utest_run_##FIXTURE##_##NAME##_##INDEX(int *, struct FIXTURE *); \
@@ -1283,6 +1289,7 @@ utest_strncpy_gcc(char *const dst, const char *const src, const size_t size) {
         utest_state.tests[index].func = &utest_i_##FIXTURE##_##NAME##_##INDEX; \
         utest_state.tests[index].index = i;                                    \
         utest_state.tests[index].name = name;                                  \
+        utest_state.tests[index].order = ORDER;                                \
         iUp = UTEST_CAST(utest_uint64_t, i);                                   \
         UTEST_SNPRINTF(name, name_size, "%s/%" UTEST_PRIu64, name_part, iUp);  \
       } else {                                                                 \
@@ -1299,6 +1306,8 @@ utest_strncpy_gcc(char *const dst, const char *const src, const size_t size) {
   UTEST_SURPRESS_WARNINGS_END                                                  \
   void utest_run_##FIXTURE##_##NAME##_##INDEX(int *utest_result,               \
                                               struct FIXTURE *utest_fixture)
+
+#define UTEST_I(FIXTURE, NAME, INDEX) UTEST_I_ORDER(FIXTURE, NAME, INDEX, 0)
 
 #ifdef __clang__
 #pragma clang diagnostic push
@@ -1423,6 +1432,42 @@ static UTEST_INLINE FILE *utest_fopen(const char *filename, const char *mode) {
 #endif
 }
 
+// When using qsort(), if comp indicates two elements as equivalent,
+// their order in the resulting sorted array is unspecified.
+// To avoid accidental sorting, check beforehand that the array elements are different.
+static UTEST_INLINE int utest_order_has_different(void)
+{
+  size_t order = utest_state.tests[0].order;
+  size_t i;
+
+  for (i = 1; i < utest_state.tests_length; i++) {
+    if (order != utest_state.tests[i].order) {
+      return 1;
+    }
+  }
+
+  return 0;
+}
+
+static UTEST_INLINE int utest_order_compare(const void *a, const void *b) {
+  const struct utest_test_state_s *arg1 = UTEST_CAST(const struct utest_test_state_s *, a);
+  const struct utest_test_state_s *arg2 = UTEST_CAST(const struct utest_test_state_s *, b);
+
+  if (arg1->order < arg2->order) {
+    return -1;
+  } else if (arg1->order > arg2->order) {
+    return 1;
+  }
+
+  if (arg1->index < arg2->index) {
+    return -1;
+  } else if (arg1->index > arg2->index) {
+    return 1;
+  } else {
+    return 0;
+  }
+}
+
 static UTEST_INLINE int utest_main(int argc, const char *const argv[]);
 int utest_main(int argc, const char *const argv[]) {
   utest_uint64_t failed = 0;
@@ -1484,6 +1529,10 @@ int utest_main(int argc, const char *const argv[]) {
                UTEST_STRNCMP(argv[index], output_str, strlen(output_str))) {
       utest_state.output = utest_fopen(argv[index] + strlen(output_str), "w+");
     } else if (0 == UTEST_STRNCMP(argv[index], list_str, strlen(list_str))) {
+      if (utest_order_has_different()) {
+        qsort(utest_state.tests, utest_state.tests_length, sizeof(struct utest_test_state_s),
+              utest_order_compare);
+      }
       for (index = 0; index < utest_state.tests_length; index++) {
         UTEST_PRINTF("%s\n", utest_state.tests[index].name);
       }
@@ -1532,6 +1581,11 @@ int utest_main(int argc, const char *const argv[]) {
       // Move the seed onwards.
       seed = seed * 747796405u + 2891336453u;
     }
+  } else {
+      if (utest_order_has_different()) {
+        qsort(utest_state.tests, utest_state.tests_length, sizeof(struct utest_test_state_s),
+              utest_order_compare);
+      }
   }
 
   for (index = 0; index < utest_state.tests_length; index++) {

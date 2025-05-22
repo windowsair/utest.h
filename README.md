@@ -178,6 +178,34 @@ Note:
   number of times we should run the test case for that index. It must be a
   literal.
 
+## Define Execution Order of Testcase
+
+On different platforms, the execution order of test cases may vary. To get a definite sequence, we can assign a non-negative order value to each case. Test case with smaller order values will execute first.
+
+```c
+// foo.bar is executed before baz.qux
+UTEST_ORDER(foo, bar, 0) {
+}
+
+UTEST_ORDER(baz, qux, 1) {
+}
+
+// MyTestFixture.a is executed before MyTestFixture.b
+UTEST_F_ORDER(MyTestFixture, a, 0) {
+}
+
+UTEST_F_ORDER(MyTestFixture, b, 1) {
+}
+
+// MyTestIndexedFixture.a is executed before MyTestIndexedFixture.b
+UTEST_I(MyTestIndexedFixture, a, 2, 0) {
+}
+
+UTEST_I(MyTestIndexedFixture, b, 42, 1) {
+}
+
+```
+
 ## Testing Macros
 
 Matching what googletest has, we provide two variants of each of the error
